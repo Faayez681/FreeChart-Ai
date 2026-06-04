@@ -1,0 +1,6 @@
+{
+  "name": "FreeChart AI",
+  "description": "Upload any stock or crypto chart screenshot. Get instant professional technical analysis, market structure, key zones, and an interactive backtester with AI Coach.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
