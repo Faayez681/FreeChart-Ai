@@ -1,0 +1,76 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account state and access privileges",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "avatarUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastLogin": { "type": "string", "format": "date-time" },
+        "role": { "type": "string" },
+        "status": { "type": "string", "enum": ["ONLINE", "IDLE", "OFFLINE"] },
+        "requestsCount": { "type": "number" }
+      },
+      "required": ["name", "email"]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "Audit logging data points for administrative tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user": { "type": "string" },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "ip": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "user", "action", "details", "timestamp", "ip", "status"]
+    },
+    "Chat": {
+      "title": "Chat Topic",
+      "description": "Parent coaching chat thread configuration",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "asset": { "type": "string" }
+      },
+      "required": ["userId", "createdAt", "asset"]
+    },
+    "ChatMessage": {
+      "title": "Chat Message",
+      "description": "Individual user or advisor message element",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sender": { "type": "string", "enum": ["user", "coach"] },
+        "text": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "sender", "text", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile directory"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Consolidated security diagnostic system audit"
+    },
+    "/chats/{chatId}": {
+      "schema": "Chat",
+      "description": "Parent chat nodes"
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Trade Coach chat messages sub-collection"
+    }
+  }
+}

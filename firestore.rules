@@ -1,0 +1,166 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 1. Global Safety Net - Default Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- REUSABLE SECURITY PRIMITIVES ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    // Check if the authenticated user has Owner / Administrator role field in Firestore
+    function isAdmin() {
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Owner / Administrator';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- SCHEMA VALIDATION BLUEPRINTS ---
+    function isValidUser(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 200
+        && data.email is string && data.email.size() > 0 && data.email.size() <= 200
+        && (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 1000))
+        && (!('role' in data) || (data.role is string && data.role.size() <= 200))
+        && (!('status' in data) || (data.status in ['ONLINE', 'IDLE', 'OFFLINE']))
+        && (!('requestsCount' in data) || (data.requestsCount is int || data.requestsCount is number))
+        && (!('createdAt' in data) || data.createdAt is string)
+        && (!('lastLogin' in data) || data.lastLogin is string);
+    }
+
+    function isValidAuditLog(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.user is string && data.user.size() <= 200
+        && data.action is string && data.action.size() <= 128
+        && data.details is string && data.details.size() <= 4000
+        && data.timestamp is string
+        && data.ip is string && data.ip.size() <= 45
+        && data.status is string && data.status.size() <= 50;
+    }
+
+    function isValidChat(data) {
+      return data.userId is string && data.userId.size() <= 128
+        && data.createdAt is string
+        && data.asset is string && data.asset.size() <= 128;
+    }
+
+    function isValidChatMessage(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.sender is string && (data.sender in ['user', 'coach'])
+        && data.text is string && data.text.size() <= 10000
+        && data.timestamp is string && data.timestamp.size() <= 50;
+    }
+
+    // --- PATH-SPECIFIC RULE MATING ---
+
+    // 1. Users Profiles Directory
+    match /users/{userId} {
+      allow get: if isSignedIn() && (isAdmin() || request.auth.uid == userId);
+      allow list: if isAdmin();
+      
+      // Standard creation: users can instantiate their own initial key with valid payload shapes
+      allow create: if isSignedIn() 
+        && isValidId(userId) 
+        && request.auth.uid == userId 
+        && isValidUser(incoming())
+        // Prevent Self-Assigned High Rank: Unless they are the bootstrapped admin, role cannot be elevated
+        && (incoming().role != 'Owner / Administrator' || isAdmin());
+
+      // Standard update: standard user cannot promote their own role, change email or change original creation date
+      allow update: if isSignedIn() 
+        && isValidId(userId)
+        && (
+          isAdmin() || 
+          (
+            request.auth.uid == userId 
+            && isValidUser(incoming())
+            && incoming().role == existing().role
+            && incoming().createdAt == existing().createdAt
+            && incoming().email == existing().email
+          )
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    // 2. Audit Logs Ledger
+    match /audit_logs/{logId} {
+      // Direct reads can only be performed by the admin
+      allow read, list: if isAdmin();
+      
+      // Non-admins can write logging events provided they authenticate and don't spoof user fields
+      allow create: if isSignedIn() 
+        && isValidId(logId) 
+        && isValidAuditLog(incoming())
+        && (isAdmin() || incoming().user == request.auth.token.email);
+
+      allow update, delete: if isAdmin();
+    }
+
+    // 3. Parent Chats
+    match /chats/{chatId} {
+      allow get: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      
+      allow create: if isSignedIn() 
+        && isValidId(chatId) 
+        && isValidChat(incoming())
+        && (isAdmin() || incoming().userId == request.auth.uid);
+
+      allow update: if isSignedIn() 
+        && isValidId(chatId)
+        && (
+          isAdmin() || 
+          (
+            resource.data.userId == request.auth.uid 
+            && isValidChat(incoming())
+            && incoming().userId == existing().userId
+            && incoming().createdAt == existing().createdAt
+          )
+        );
+
+      allow delete: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+
+      // 4. Messages Sub-collection
+      match /messages/{messageId} {
+        // Query Enforcer clause
+        allow read, list: if isSignedIn() 
+          && (isAdmin() || get(/databases/$(database)/documents/chats/$(chatId)).data.userId == request.auth.uid);
+
+        allow create: if isSignedIn() 
+          && isValidId(messageId) 
+          && isValidChatMessage(incoming())
+          && (isAdmin() || get(/databases/$(database)/documents/chats/$(chatId)).data.userId == request.auth.uid);
+
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // 5. Dashboards Collection
+    match /dashboards/{dashboardId} {
+      allow read: if true; // Public view-only access for shareable links
+      allow create, update: if true; // Permits creating and saving customized dashboard arrangements
+      allow delete: if isSignedIn();
+    }
+
+  }
+}
